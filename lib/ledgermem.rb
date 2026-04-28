@@ -119,11 +119,17 @@ module Ledgermem
       body = {}
       body[:content] = content unless content.nil?
       body[:metadata] = metadata unless metadata.nil?
-      @client.request(:patch, "/v1/memories/#{id}", body: body)
+      @client.request(:patch, "/v1/memories/#{escape(id)}", body: body)
     end
 
     def delete(id)
-      @client.request(:delete, "/v1/memories/#{id}")
+      @client.request(:delete, "/v1/memories/#{escape(id)}")
+    end
+
+    private
+
+    def escape(id)
+      URI.encode_www_form_component(id.to_s)
     end
 
     def list(limit: nil, cursor: nil, actor_id: nil)
