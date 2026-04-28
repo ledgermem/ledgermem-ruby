@@ -2,6 +2,8 @@
 
 require "json"
 require "net/http"
+require "socket"
+require "time"
 require "uri"
 
 require_relative "ledgermem/version"
@@ -13,6 +15,19 @@ module Ledgermem
   DEFAULT_MAX_RETRIES = 3
   RETRY_BASE_DELAY = 0.2
   RETRY_MAX_DELAY = 5.0
+
+  RETRYABLE_TRANSPORT_ERRORS = [
+    Errno::ECONNREFUSED,
+    Errno::ECONNRESET,
+    Errno::EHOSTUNREACH,
+    Errno::ENETUNREACH,
+    Errno::ETIMEDOUT,
+    Net::OpenTimeout,
+    Net::ReadTimeout,
+    EOFError,
+    SocketError,
+    IOError,
+  ].freeze
 
   class Error < StandardError; end
 
@@ -54,17 +69,26 @@ module Ledgermem
 
       attempt = 0
       loop do
-        req = build_request(method, uri, body)
-        res = Net::HTTP.start(uri.hostname, uri.port,
-                              use_ssl: uri.scheme == "https",
-                              open_timeout: @timeout,
-                              read_timeout: @timeout) do |http|
-          http.request(req)
+        begin
+          req = build_request(method, uri, body)
+          res = Net::HTTP.start(uri.hostname, uri.port,
+                                use_ssl: uri.scheme == "https",
+                                open_timeout: @timeout,
+                                read_timeout: @timeout) do |http|
+            http.request(req)
+          end
+        rescue *RETRYABLE_TRANSPORT_ERRORS => e
+          if attempt < @max_retries
+            sleep(retry_delay(attempt, nil))
+            attempt += 1
+            next
+          end
+          raise APIError.new(status: 0, message: e.message, body: "")
         end
 
         status = res.code.to_i
         if retryable?(status) && attempt < @max_retries
-          sleep(retry_delay(attempt))
+          sleep(retry_delay(attempt, res["retry-after"]))
           attempt += 1
           next
         end
@@ -109,14 +133,34 @@ module Ledgermem
     end
 
     def retryable?(status)
+      # 501 Not Implemented is permanent — retrying wastes round-trips.
+      return false if status == 501
       status == 429 || (status >= 500 && status < 600)
     end
 
-    def retry_delay(attempt)
+    def retry_delay(attempt, retry_after)
+      hint = parse_retry_after(retry_after)
+      return [hint, RETRY_MAX_DELAY].min if hint
+
       base = RETRY_BASE_DELAY * (2**attempt)
       capped = [base, RETRY_MAX_DELAY].min
       # Full jitter.
       rand * capped
+    end
+
+    def parse_retry_after(value)
+      return nil if value.nil? || value.to_s.strip.empty?
+      raw = value.to_s.strip
+      secs = Float(raw) rescue nil
+      return [secs, 0].max if secs
+      # HTTP-date form.
+      begin
+        when_at = Time.httpdate(raw)
+        delta = when_at - Time.now
+        delta.positive? ? delta : 0
+      rescue ArgumentError
+        nil
+      end
     end
 
     def parse_message(raw)
@@ -160,8 +204,21 @@ module Ledgermem
 
     private
 
+    # URI.encode_www_form_component is form-encoding, which turns space
+    # into "+". That is wrong for path segments (RFC 3986 expects "%20")
+    # and would route an id like "foo bar" to "foo+bar" on the server.
     def escape(id)
-      URI.encode_www_form_component(id.to_s)
+      str = id.to_s
+      out = +""
+      str.each_byte do |b|
+        if (b >= 0x30 && b <= 0x39) || (b >= 0x41 && b <= 0x5A) || (b >= 0x61 && b <= 0x7A) ||
+           [0x2D, 0x2E, 0x5F, 0x7E].include?(b) # - . _ ~
+          out << b.chr
+        else
+          out << format("%%%02X", b)
+        end
+      end
+      out
     end
   end
 end
