@@ -3,7 +3,7 @@
 require "minitest/autorun"
 require "json"
 require "socket"
-require "ledgermem"
+require "getmnemo"
 
 # Tiny one-shot HTTP mock — no external deps.
 class MockServer

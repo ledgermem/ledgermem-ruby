@@ -6,11 +6,11 @@ require "socket"
 require "time"
 require "uri"
 
-require_relative "ledgermem/version"
+require_relative "getmnemo/version"
 
 module Ledgermem
-  DEFAULT_BASE_URL = "https://api.proofly.dev"
-  USER_AGENT = "ledgermem-ruby/#{VERSION}"
+  DEFAULT_BASE_URL = "https://api.getmnemo.xyz"
+  USER_AGENT = "getmnemo-ruby/#{VERSION}"
   DEFAULT_TIMEOUT = 30
   DEFAULT_MAX_RETRIES = 3
   RETRY_BASE_DELAY = 0.2
@@ -35,7 +35,7 @@ module Ledgermem
     attr_reader :status, :body
 
     def initialize(status:, message:, body:)
-      super("ledgermem: #{status} #{message}")
+      super("getmnemo: #{status} #{message}")
       @status = status
       @body = body
     end
@@ -45,9 +45,9 @@ module Ledgermem
     attr_reader :base_url
 
     def initialize(api_key: nil, workspace_id: nil, base_url: nil, timeout: DEFAULT_TIMEOUT, max_retries: DEFAULT_MAX_RETRIES)
-      @api_key      = api_key      || ENV["LEDGERMEM_API_KEY"]
-      @workspace_id = workspace_id || ENV["LEDGERMEM_WORKSPACE_ID"]
-      @base_url     = (base_url    || ENV["LEDGERMEM_API_URL"] || DEFAULT_BASE_URL).chomp("/")
+      @api_key      = api_key      || ENV["GETMNEMO_API_KEY"]
+      @workspace_id = workspace_id || ENV["GETMNEMO_WORKSPACE_ID"]
+      @base_url     = (base_url    || ENV["GETMNEMO_API_URL"] || DEFAULT_BASE_URL).chomp("/")
       @timeout      = timeout
       @max_retries  = [max_retries.to_i, 0].max
     end
